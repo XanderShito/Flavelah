@@ -1,0 +1,85 @@
+name: Compilar Flavelah (Win32)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+
+      - name: Preparar MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Preparar D3DX9 desde paquete oficial Microsoft
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'd3dx.zip'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'd3dx-pkg'
+          $dx = Join-Path $env:GITHUB_WORKSPACE 'dxsdk'
+          New-Item -ItemType Directory -Force -Path $unpacked, "$dx\Include", "$dx\Lib\x86" | Out-Null
+          Invoke-WebRequest 'https://www.nuget.org/api/v2/package/Microsoft.DXSDK.D3DX/9.29.952.8' -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $unpacked -Force
+          $head = Get-ChildItem $unpacked -Recurse -Filter 'd3dx9.h' | Select-Object -First 1
+          $lib = Get-ChildItem $unpacked -Recurse -Filter 'd3dx9.lib' |
+            Where-Object { $_.FullName -match '(?i)(x86|win32)' } | Select-Object -First 1
+          if (-not $head -or -not $lib) { throw 'D3DX9 headers/libraries no encontrados en NuGet.' }
+          Copy-Item (Join-Path $head.DirectoryName '*.h') "$dx\Include" -Force
+          Copy-Item $lib.FullName "$dx\Lib\x86\d3dx9.lib" -Force
+          "DIRECTX9_SDK_DIR=$dx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "D3DX9: $($head.FullName) ; $($lib.FullName)"
+
+      - name: Descargar y compilar Plugin-SDK (GTA SA)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = Join-Path $env:RUNNER_TEMP 'plugin-sdk'
+          git clone --depth 1 --recurse-submodules https://github.com/DK22Pac/plugin-sdk.git $sdk
+          "PLUGIN_SDK_DIR=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Push-Location $sdk
+          try {
+            $premake = Join-Path $sdk 'tools\premake\premake5.exe'
+            if (-not (Test-Path $premake)) { throw "No existe $premake" }
+            & $premake vs2022 "--file=$sdk\tools\premake\premake5.lua"
+            if ($LASTEXITCODE -ne 0) { throw 'Falló premake de Plugin-SDK.' }
+            $sln = @('plugin.sln','plugin.slnx') | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if (-not $sln) { throw 'No se generó plugin.sln o plugin.slnx.' }
+            & msbuild $sln '/m' '/v:minimal' '/p:Configuration=Release' '/p:Platform=Mixed Platforms' '/t:plugin_sa'
+            if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación de Plugin-SDK.' }
+            if (-not (Test-Path (Join-Path $sdk 'output\lib\plugin.lib'))) {
+              throw 'Plugin-SDK no produjo output\lib\plugin.lib.'
+            }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Compilar Flavelah.asi (Win32)
+        shell: pwsh
+        run: |
+          & msbuild 'Stealth Remastered.sln' /m /v:minimal /fileLogger '/fileLoggerParameters:LogFile=flavelah_build.log;Verbosity=diagnostic' '/p:Configuration=GTASA Release' '/p:Platform=Win32'
+          if ($LASTEXITCODE -ne 0) { throw 'Compilación fallida: revisa el registro.' }
+          if (-not (Test-Path 'build\GTASA Release\Flavelah.asi')) {
+            throw 'Compilación terminada, pero Flavelah.asi no está en la ruta esperada.'
+          }
+
+      - name: Publicar ASI (si compila)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Flavelah-asi-Win32
+          path: build/GTASA Release/Flavelah.asi
+          if-no-files-found: error
+
+      - name: Publicar registro de errores (si existe)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: registro-compilacion
+          path: flavelah_build.log
+          if-no-files-found: ignore
