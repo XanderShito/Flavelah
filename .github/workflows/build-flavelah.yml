@@ -31,6 +31,12 @@ jobs:
             Where-Object { $_.FullName -match '(?i)(x86|win32)' } | Select-Object -First 1
           if (-not $head -or -not $lib) { throw 'D3DX9 headers/libraries no encontrados en NuGet.' }
           Copy-Item (Join-Path $head.DirectoryName '*.h') "$dx\Include" -Force
+          # D3DX9math.h includes D3DX9math.inl: copiar tambien archivos .inl.
+          Get-ChildItem -Path $head.DirectoryName -Filter '*.inl' -File |
+            Copy-Item -Destination "$dx\Include" -Force
+          if (-not (Test-Path "$dx\Include\d3dx9math.inl")) {
+            throw 'El paquete D3DX no proporciono d3dx9math.inl junto a sus cabeceras.'
+          }
           Copy-Item $lib.FullName "$dx\Lib\x86\d3dx9.lib" -Force
           "DIRECTX9_SDK_DIR=$dx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "D3DX9: $($head.FullName) ; $($lib.FullName)"
