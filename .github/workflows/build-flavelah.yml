@@ -46,7 +46,15 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $sdk = Join-Path $env:RUNNER_TEMP 'plugin-sdk'
-          git clone --depth 1 --recurse-submodules https://github.com/DK22Pac/plugin-sdk.git $sdk
+          # Proyecto antiguo: fijar Plugin-SDK antes de los cambios incompatibles de 2025-2026.
+          # Referencia verificada: https://github.com/DK22Pac/plugin-sdk/commit/865cc58
+          git clone --filter=blob:none https://github.com/DK22Pac/plugin-sdk.git $sdk
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudo clonar Plugin-SDK.' }
+          git -C $sdk checkout --detach 865cc58
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudo fijar la version historica de Plugin-SDK.' }
+          git -C $sdk submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudieron preparar los submodulos de Plugin-SDK.' }
+          Write-Host "Version SDK seleccionada: $(git -C $sdk rev-parse --short HEAD)"
           $env:PLUGIN_SDK_DIR = $sdk
           "PLUGIN_SDK_DIR=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Push-Location $sdk
@@ -70,15 +78,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Plugin-SDK v1004+ movio los tipos enum a game_sa/enums.
-          # El proyecto Stealth original no agrega esta carpeta a los includes.
-          $enumDir = Join-Path $env:PLUGIN_SDK_DIR 'plugin_sa\game_sa\enums'
-          if (-not (Test-Path (Join-Path $enumDir 'eWeaponType.h'))) {
-            throw "No se encontro eWeaponType.h en: $enumDir; revisa la version de Plugin-SDK."
-          }
-          # CL se agrega a las opciones que usa cl.exe, sin editar el .vcxproj original.
-          $env:CL = '/I"' + $enumDir + '"'
-          Write-Host "Directorio adicional de cabeceras: $enumDir"
+          # En la revision historica los enums conservan su ubicacion original.
+          # Añadimos las rutas antiguas de RenderWare cuando existan.
+          $extraIncludes = @(
+            (Join-Path $env:PLUGIN_SDK_DIR 'plugin_sa\game_sa\rw'),
+            (Join-Path $env:PLUGIN_SDK_DIR 'plugin_sa\game_sa\enums'),
+            (Join-Path $env:PLUGIN_SDK_DIR 'shared\game')
+          ) | Where-Object { Test-Path $_ }
+          $env:CL = '/Zc:offsetof- ' + (($extraIncludes | ForEach-Object { '/I"' + $_ + '"' }) -join ' ')
+          Write-Host "Rutas extra de cabeceras: $($extraIncludes -join '; ')"
           & msbuild 'Stealth Remastered.sln' /m /v:minimal /fileLogger '/fileLoggerParameters:LogFile=flavelah_build.log;Verbosity=diagnostic' '/p:Configuration=GTASA Release' '/p:Platform=x86'
           if ($LASTEXITCODE -ne 0) { throw 'Compilación fallida: revisa el registro.' }
           if (-not (Test-Path 'build\GTASA Release\Flavelah.asi')) {
