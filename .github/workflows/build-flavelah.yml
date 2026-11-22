@@ -85,7 +85,9 @@ jobs:
             (Join-Path $env:PLUGIN_SDK_DIR 'plugin_sa\game_sa\enums'),
             (Join-Path $env:PLUGIN_SDK_DIR 'shared\game')
           ) | Where-Object { Test-Path $_ }
-          $env:CL = '/Zc:offsetof- ' + (($extraIncludes | ForEach-Object { '/I"' + $_ + '"' }) -join ' ')
+          # RenderWare.h activa sus declaraciones solo cuando RW está definido.
+          # GTASA identifica el juego, pero no sustituye el símbolo RW.
+          $env:CL = '/DRW /Zc:offsetof- ' + (($extraIncludes | ForEach-Object { '/I"' + $_ + '"' }) -join ' ')
           Write-Host "Rutas extra de cabeceras: $($extraIncludes -join '; ')"
           & msbuild 'Stealth Remastered.sln' /m /v:minimal /fileLogger '/fileLoggerParameters:LogFile=flavelah_build.log;Verbosity=diagnostic' '/p:Configuration=GTASA Release' '/p:Platform=x86'
           if ($LASTEXITCODE -ne 0) { throw 'Compilación fallida: revisa el registro.' }
