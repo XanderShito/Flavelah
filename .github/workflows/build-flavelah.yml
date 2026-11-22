@@ -41,12 +41,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $sdk = Join-Path $env:RUNNER_TEMP 'plugin-sdk'
           git clone --depth 1 --recurse-submodules https://github.com/DK22Pac/plugin-sdk.git $sdk
+          $env:PLUGIN_SDK_DIR = $sdk
           "PLUGIN_SDK_DIR=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Push-Location $sdk
           try {
             $premake = Join-Path $sdk 'tools\premake\premake5.exe'
             if (-not (Test-Path $premake)) { throw "No existe $premake" }
-            & $premake vs2022 "--file=$sdk\tools\premake\premake5.lua"
+            & $premake vs2022 "--file=$sdk\tools\premake\premake5.lua" "--pluginsdkdir=$sdk"
             if ($LASTEXITCODE -ne 0) { throw 'Falló premake de Plugin-SDK.' }
             $sln = @('plugin.sln','plugin.slnx') | Where-Object { Test-Path $_ } | Select-Object -First 1
             if (-not $sln) { throw 'No se generó plugin.sln o plugin.slnx.' }
