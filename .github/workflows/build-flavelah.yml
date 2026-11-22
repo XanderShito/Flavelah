@@ -74,6 +74,36 @@ jobs:
             Pop-Location
           }
 
+      - name: Adaptar campos CVector antiguos (fX/fY/fZ) al Plugin-SDK actual
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceDir = Join-Path $env:GITHUB_WORKSPACE 'Stealth Remastered'
+          $filesChanged = 0
+          $replacements = 0
+          Get-ChildItem -Path $sourceDir -Recurse -File |
+            Where-Object { $_.Extension -in @('.cpp', '.h', '.hpp') } |
+            ForEach-Object {
+              $original = [System.IO.File]::ReadAllText($_.FullName)
+              $matches = [regex]::Matches($original, '(?:\.|->)f[XYZ]\b').Count
+              if ($matches -gt 0) {
+                $updated = [regex]::Replace($original, '(\.|->)fX\b', '${1}x')
+                $updated = [regex]::Replace($updated, '(\.|->)fY\b', '${1}y')
+                $updated = [regex]::Replace($updated, '(\.|->)fZ\b', '${1}z')
+                [System.IO.File]::WriteAllText(
+                  $_.FullName,
+                  $updated,
+                  [System.Text.UTF8Encoding]::new($false)
+                )
+                $filesChanged++
+                $replacements += $matches
+              }
+            }
+          Write-Host "Compatibilidad CVector: $replacements accesos corregidos en $filesChanged archivos."
+          if ($replacements -eq 0) {
+            Write-Warning 'No se detectaron accesos antiguos fX/fY/fZ; revisar la fuente subida.'
+          }
+
       - name: Compilar Flavelah.asi (Win32)
         shell: pwsh
         run: |
