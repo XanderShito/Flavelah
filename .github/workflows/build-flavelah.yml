@@ -69,6 +69,16 @@ jobs:
       - name: Compilar Flavelah.asi (Win32)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          # Plugin-SDK v1004+ movio los tipos enum a game_sa/enums.
+          # El proyecto Stealth original no agrega esta carpeta a los includes.
+          $enumDir = Join-Path $env:PLUGIN_SDK_DIR 'plugin_sa\game_sa\enums'
+          if (-not (Test-Path (Join-Path $enumDir 'eWeaponType.h'))) {
+            throw "No se encontro eWeaponType.h en: $enumDir; revisa la version de Plugin-SDK."
+          }
+          # CL se agrega a las opciones que usa cl.exe, sin editar el .vcxproj original.
+          $env:CL = '/I"' + $enumDir + '"'
+          Write-Host "Directorio adicional de cabeceras: $enumDir"
           & msbuild 'Stealth Remastered.sln' /m /v:minimal /fileLogger '/fileLoggerParameters:LogFile=flavelah_build.log;Verbosity=diagnostic' '/p:Configuration=GTASA Release' '/p:Platform=x86'
           if ($LASTEXITCODE -ne 0) { throw 'Compilación fallida: revisa el registro.' }
           if (-not (Test-Path 'build\GTASA Release\Flavelah.asi')) {
